@@ -199,11 +199,13 @@ app.listen(PORT, () => {
     console.log(`AI Ref-Traders backend running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/status`);
 });
+
 // Log all incoming requests
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
   next();
 });
+
 // Handle root route
 app.get('/', (req, res) => {
   res.send(`
@@ -215,16 +217,4 @@ app.get('/', (req, res) => {
       <li>POST /api/user - Create user</li>
     </ul>
   `);
-});
-const https = require('https');
-const fs = require('fs');
-
-const options = {
-  key: fs.readFileSync('key.pem'),
-  cert: fs.readFileSync('cert.pem')
-};
-
-// Replace app.listen with:
-https.createServer(options, app).listen(PORT, () => {
-  console.log(`Secure server running on port ${PORT}`);
 });
