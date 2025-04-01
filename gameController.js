@@ -179,3 +179,15 @@ exports.handleGameResult = async (req, res) => {
     capital: user.tradingCapital
   });
 };
+const GameService = require('../services/gameService');
+
+exports.playMemoryMatch = async (req, res, next) => {
+  try {
+    const result = await GameService.playMemoryMatch(req.user.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Similar methods for other games...
