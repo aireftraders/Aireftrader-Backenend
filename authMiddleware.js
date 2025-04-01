@@ -154,3 +154,23 @@ module.exports = (req, res, next) => {
   }
   next();
 };
+exports.checkGameAds = (requiredAds) => {
+  return async (req, res, next) => {
+    try {
+      const gameType = req.path.split('/')[1];
+      const stats = await GameStat.findOne({ 
+        userId: req.user.id, 
+        gameType 
+      });
+      
+      if (!stats || stats.adsWatched < (stats.plays + 1) * requiredAds) {
+        return res.status(403).json({ 
+          error: `Watch ${requiredAds} ads to play this game` 
+        });
+      }
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+};
