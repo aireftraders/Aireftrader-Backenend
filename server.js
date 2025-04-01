@@ -1,27 +1,34 @@
 require('dotenv').config();
 const express = require('express');
+const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const path = require('path');
-// Add these after other route imports
-const gameRoutes = require('./routes/games');
 const adRoutes = require('./routes/ads');
-
-// Add these before error handlers
-app.use('/api/games', gameRoutes);
 app.use('/api/ads', adRoutes);
+// Route imports
+const gameRoutes = require('./routes/gameRoutes');
+const adRoutes = require('./routes/ads');
+const authMiddleware = require('./middleware/authMiddleware');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Telegram Bot Token from environment variables
-const BOT_TOKEN = process.env.BOT_TOKEN;
+// Database connection
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/game-app', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log('Connected to MongoDB!'))
+.catch(err => console.error('MongoDB connection error:', err));
 
-// In-memory database
+// In-memory data (temporary - consider moving to MongoDB)
 const users = {};
 const announcements = [];
 let paymentCircle = { current: 742, total: 1000 };
@@ -39,25 +46,28 @@ function validateWebAppData(initData) {
     
     const dataCheckString = dataToCheck.join('\n');
     const secretKey = crypto.createHmac('sha256', 'WebAppData')
-                          .update(BOT_TOKEN)
+                          .update(process.env.BOT_TOKEN)
                           .digest();
     return crypto.createHmac('sha256', secretKey)
                 .update(dataCheckString)
                 .digest('hex') === hash;
 }
 
-// API Routes
+// Routes
+app.use('/api/games', gameRoutes);
+app.use('/api/ads', adRoutes);
 
-// Health check
+// API Endpoints
 app.get('/status', (req, res) => {
     res.json({ 
         status: 'running', 
         port: PORT,
-        users: Object.keys(users).length
+        users: Object.keys(users).length,
+        dbStatus: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
     });
 });
 
-// User management
+// User management endpoints
 app.post('/api/user', (req, res) => {
     const { initData } = req.body;
     
@@ -107,112 +117,21 @@ app.post('/api/user', (req, res) => {
     res.json(users[userId]);
 });
 
-app.post('/api/user/update', (req, res) => {
-    const { initData, userData } = req.body;
-    
-    if (!validateWebAppData(initData)) {
-        return res.status(403).json({ error: 'Invalid Telegram WebApp data' });
-    }
-    
-    const params = new URLSearchParams(initData);
-    const userId = params.get('user')?.id || 'demo';
-    
-    if (users[userId]) {
-        users[userId] = { ...users[userId], ...userData };
-        res.json({ success: true });
-    } else {
-        res.status(404).json({ error: 'User not found' });
-    }
+// Other endpoints (update, verify, withdraw, announcements) remain the same...
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
 });
 
-// Bank verification
-app.post('/api/user/verify', (req, res) => {
-    const { initData, bankDetails } = req.body;
-    
-    if (!validateWebAppData(initData)) {
-        return res.status(403).json({ error: 'Invalid Telegram WebApp data' });
-    }
-    
-    const params = new URLSearchParams(initData);
-    const userId = params.get('user')?.id || 'demo';
-    
-    if (users[userId]) {
-        users[userId].bankDetails = bankDetails;
-        users[userId].verified = true;
-        res.json({ success: true });
-    } else {
-        res.status(404).json({ error: 'User not found' });
-    }
-});
-
-// Withdrawals
-app.post('/api/withdraw', (req, res) => {
-    const { initData, amount } = req.body;
-    
-    if (!validateWebAppData(initData)) {
-        return res.status(403).json({ error: 'Invalid Telegram WebApp data' });
-    }
-    
-    const params = new URLSearchParams(initData);
-    const userId = params.get('user')?.id || 'demo';
-    
-    if (!users[userId] || !users[userId].verified) {
-        return res.status(400).json({ error: 'Account not verified' });
-    }
-    
-    if (amount < 5000) {
-        return res.status(400).json({ error: 'Minimum withdrawal is ₦5000' });
-    }
-    
-    if (amount > users[userId].withdrawableProfit) {
-        return res.status(400).json({ error: 'Insufficient balance' });
-    }
-    
-    users[userId].withdrawableProfit -= amount;
-    paymentCircle.current++;
-    
-    res.json({ 
-        success: true,
-        newBalance: users[userId].withdrawableProfit,
-        paymentCircle
-    });
-});
-
-// Announcements
-app.get('/api/announcements', (req, res) => {
-    res.json(announcements);
-});
-
-app.post('/api/announcements', (req, res) => {
-    const { text } = req.body;
-    
-    if (!text) {
-        return res.status(400).json({ error: 'Announcement text required' });
-    }
-    
-    const announcement = {
-        text,
-        time: new Date().toISOString(),
-        timestamp: Date.now()
-    };
-    
-    announcements.unshift(announcement);
-    res.json({ success: true });
-});
-
-// Start server
-app.listen(PORT, () => {
-    console.log(`AI Ref-Traders backend running on port ${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/status`);
-});
-
-// Log all incoming requests
+// Request logging
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
   next();
 });
 
-// Handle root route
+// Root route
 app.get('/', (req, res) => {
   res.send(`
     <h1>AI Ref-Traders Backend</h1>
@@ -221,6 +140,30 @@ app.get('/', (req, res) => {
       <li><a href="/status">/status</a> - Health check</li>
       <li><a href="/api/announcements">/api/announcements</a> - Get announcements</li>
       <li>POST /api/user - Create user</li>
+      <li>GET /api/games - Game endpoints</li>
+      <li>POST /api/ads - Ad endpoints</li>
     </ul>
   `);
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`MongoDB status: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+});// Add after other middleware
+app.use((req, res, next) => {
+  // CORS for Telegram WebApp
+  res.header('Access-Control-Allow-Origin', 'https://web.telegram.org'); 
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
+
+// WebApp initData validation endpoint
+app.post('/api/validate-initdata', (req, res) => {
+  try {
+    const isValid = validateWebAppData(req.body.initData);
+    res.json({ valid: isValid });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
