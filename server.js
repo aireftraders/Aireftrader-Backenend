@@ -3,7 +3,13 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const path = require('path');
+// Add these after other route imports
+const gameRoutes = require('./routes/games');
+const adRoutes = require('./routes/ads');
 
+// Add these before error handlers
+app.use('/api/games', gameRoutes);
+app.use('/api/ads', adRoutes);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
