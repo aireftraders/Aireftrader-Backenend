@@ -1,74 +1,101 @@
 const axios = require('axios');
+const crypto = require('crypto');
 const config = require('../config/config');
+const TelegramBot = require('node-telegram-bot-api');
 
-const telegramService = {
-  sendMessage: async (chatId, text) => {
-    try {
-      const response = await axios.post(
-        `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendMessage`,
-        {
-          chat_id: chatId,
-          text: text,
-          parse_mode: 'HTML'
-        }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error sending Telegram message:', error.message);
-      throw error;
-    }
-  },
+// Initialize bot if token exists
+const bot = process.env.TELEGRAM_BOT_TOKEN 
+  ? new TelegramBot(process.env.TELEGRAM_BOT_TOKEN) 
+  : null;
 
-  verifyWebAppData: (initData) => {
+class TelegramService {
+  // ===== WEBAPP VALIDATION =====
+  static verifyWebAppData(initData) {
     try {
       const params = new URLSearchParams(initData);
       const hash = params.get('hash');
-      const dataToCheck = initData.split('&hash=')[0];
+      const dataToCheck = [];
       
-      const secret = crypto.createHash('sha256')
+      // Proper parameter sorting as per Telegram docs
+      params.sort();
+      params.forEach((val, key) => {
+        if (key !== 'hash') dataToCheck.push(`${key}=${val}`);
+      });
+      
+      // Correct key derivation
+      const secretKey = crypto
+        .createHmac('sha256', 'WebAppData')
         .update(config.TELEGRAM_BOT_TOKEN)
         .digest();
       
-      const computedHash = crypto.createHmac('sha256', secret)
-        .update(dataToCheck)
-        .digest('hex');
-      
-      return computedHash === hash;
+      return crypto
+        .createHmac('sha256', secretKey)
+        .update(dataToCheck.join('\n'))
+        .digest('hex') === hash;
     } catch (error) {
-      console.error('Error verifying Telegram data:', error);
+      console.error('[Telegram] Validation error:', error);
       return false;
     }
   }
-};
 
-module.exports = telegramService;
-const TelegramBot = require('node-telegram-bot-api');
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
-
-class TelegramNotifier {
-  static async sendDM(userTelegramId, announcement) {
+  // ===== MESSAGING =====
+  static async sendMessage(chatId, text, options = {}) {
     try {
-      // Check if user has /started the bot (compliant with Telegram rules)
-      const msg = await bot.sendMessage(
-        userTelegramId,
-        `📢 *${announcement.title}*\n\n${announcement.message}\n\n` +
-        `_Mark as read: ${process.env.BOT_LINK}/read/${announcement._id}_`,
-        { parse_mode: 'Markdown' }
-      );
+      if (!bot) throw new Error('Bot token not configured');
       
-      return msg.message_id; // Return Telegram message ID
+      const response = await bot.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        ...options
+      });
+      
+      return {
+        success: true,
+        messageId: response.message_id
+      };
     } catch (error) {
-      console.error(`Failed to send to ${userTelegramId}:`, error.message);
-      return null;
+      console.error(`[Telegram] Message failed to ${chatId}:`, error.message);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
-  static async markAsRead(announcementId, userId) {
-    await Announcement.updateOne(
-      { _id: announcementId, 'recipients.userId': userId },
-      { $set: { 'recipients.$.read': true } }
-    );
+  // ===== NOTIFICATIONS =====
+  static async sendAnnouncement(userId, announcement) {
+    try {
+      if (!process.env.BOT_LINK) {
+        throw new Error('BOT_LINK env variable required');
+      }
+
+      const message = `📢 <b>${announcement.title}</b>\n\n` +
+                     `${announcement.message}\n\n` +
+                     `<a href="${process.env.BOT_LINK}/read/${announcement._id}">` +
+                     `Mark as read</a>`;
+
+      return this.sendMessage(userId, message);
+    } catch (error) {
+      console.error('[Telegram] Announcement failed:', error);
+      return { success: false };
+    }
+  }
+
+  // ===== USER DATA EXTRACTION =====
+  static parseInitData(initData) {
+    try {
+      const params = new URLSearchParams(initData);
+      return {
+        userId: params.get('user.id'),
+        firstName: params.get('user.first_name'),
+        lastName: params.get('user.last_name'),
+        username: params.get('user.username'),
+        language: params.get('user.language_code')
+      };
+    } catch (error) {
+      console.error('[Telegram] InitData parsing failed:', error);
+      return null;
+    }
   }
 }
 
-module.exports = TelegramNotifier;
+module.exports = TelegramService;
