@@ -1,0 +1,5 @@
+﻿{
+  "watch": ["server.js"],
+  "ignore": ["node_modules"],
+  "exec": "node server.js"
+}

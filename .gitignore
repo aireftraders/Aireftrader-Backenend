@@ -1,0 +1,19 @@
+﻿# Dependency directories
+node_modules/
+
+# Environment files
+.env
+.env.production
+
+# SSL certificates
+*.pem
+*.crt
+*.key
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
