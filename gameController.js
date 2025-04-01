@@ -191,3 +191,20 @@ exports.playMemoryMatch = async (req, res, next) => {
 };
 
 // Similar methods for other games...
+// Add response format matching frontend expectations
+exports.playMemoryMatch = async (req, res) => {
+  try {
+    const result = await GameService.playMemoryMatch(req.user.id);
+    res.json({
+      success: true,
+      matchedPairs: result.matchedPairs,
+      earnings: result.earnings,
+      newBalance: await User.getBalance(req.user.id) // Add this method to User model
+    });
+  } catch (err) {
+    res.status(400).json({ 
+      error: err.message,
+      requiresAd: err.requiresAd || false 
+    });
+  }
+};
